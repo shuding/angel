@@ -6,17 +6,18 @@
 'use strict';
 
 module.exports = {
-    elementAnalyzer: elementAnalyzer,
-    eventAnalyzer:   eventAnalyzer
+    elementAnalyzer:    elementAnalyzer,
+    eventAnalyzer:      eventAnalyzer,
+    similarityAnalyzer: similarityAnalyzer
 };
 
 function elementAnalyzer(element) {
-    var ret = element.nodeName;
+    var ret = [];
     if (element.hasAttribute && element.hasAttribute('id')) {
-        ret += '#' + element.getAttribute('id');
+        ret[0] = element.getAttribute('id');
     }
     if (element.hasAttribute && element.hasAttribute('class')) {
-        ret += '.' + element.getAttribute('class');
+        ret[1] = element.getAttribute('class').split(' ');
     }
     return ret;
 }
@@ -25,12 +26,40 @@ function eventAnalyzer(event) {
     var path   = [];
     var target = event.target;
 
-    path.push(elementAnalyzer(target));
+    path.push(target);
     while (target.parentNode) {
         target = target.parentNode;
-        path.push(elementAnalyzer(target));
+        path.push(target);
     }
     return path;
+}
+
+function similarityAnalyzer(a, b) {
+    if (a.nodeName !== b.nodeName) {
+        return 0;
+    }
+    var score = 1;
+    var a_ = elementAnalyzer(a);
+    var b_ = elementAnalyzer(b);
+    /* TODO: similarity of class names
+    if (a_[1] != b_[1]) {
+        score *= .5;
+    }
+    */
+    if (a_[0] && b_[0]) {
+        var cnt = 0;
+        for (var i = 0; i < a_[0].length && i < b_[0].length; ++i) {
+            if (a_[i] == b_[i]) {
+                cnt++;
+            } else {
+                break;
+            }
+        }
+        score *= Math.pow(4, .5 * cnt * (1 / a_[0].length + 1 / b_[0].length));
+    } else if (a_[0] || b_[0]) {
+        score *= .8;
+    }
+    return score;
 }
 
 },{}],2:[function(require,module,exports){
@@ -114,15 +143,29 @@ module.exports = Angel;
 function Angel() {
     var self = this;
 
-    this.logs = [];
-    this.eventCenter = new EventCenter();
+    this.actions         = [];
+    this.hoverElement    = null;
+    this.elementPath     = [];
+    this.eventCenter     = new EventCenter();
+    this.similarElements = [];
 
     // Rewrite eventWatcher
     this.eventCenter.eventWatcher = function (eventName, event, element) {
-        self.logs.push({
-            time: event.timeStamp,
-            path: clickAnalyzer.eventAnalyzer(event)
-        });
+        var path   = clickAnalyzer.eventAnalyzer(event);
+        var target = path[0];
+        if (['click'].indexOf(eventName) !== -1) {
+            self.actions.push({
+                time: event.timeStamp,
+                path: path
+            });
+        }
+        if (['mousemove'].indexOf(eventName) !== -1) {
+            if (target != self.hoverElement) {
+                self.hoverElement = target;
+                self.elementPath  = path;
+                self.findSimilarElements(path);
+            }
+        }
     };
 
     return this;
@@ -133,8 +176,41 @@ Angel.prototype.init = function (window) {
     this.document = window.document;
     this.body     = window.document.body;
 
+    this.eventCenter.attach(window, 'mousemove');
     this.eventCenter.attach(window, 'click');
+
+    var style = this.document.createElement('style');
+    style.appendChild(this.document.createTextNode(''));
+    this.document.head.appendChild(style);
+
+    style.sheet.insertRule('.angel-similar-elements { background: #6ff; outline: 1px solid #6ff }', 0);
+
     return this;
+};
+
+Angel.prototype.findRecursion = function (deepth, currentElement, similarity) {
+    if (deepth == 0) {
+        this.similarElements.push([currentElement, similarity]);
+        return;
+    }
+    for (var i = 0; i < currentElement.childNodes.length; ++i) {
+        var iterSimilarity;
+        iterSimilarity = similarity * clickAnalyzer.similarityAnalyzer(this.elementPath[deepth - 1], currentElement.childNodes[i]);
+        if (iterSimilarity >= 1) {
+            this.findRecursion(deepth - 1, currentElement.childNodes[i], iterSimilarity);
+        }
+    }
+};
+
+Angel.prototype.findSimilarElements = function (path) {
+    this.similarElements.forEach(function (element) {
+        element[0].className = (' ' + (element[0].className || '') + ' ').replace(' angel-similar-elements ', ' ');
+    });
+    this.similarElements = [];
+    this.findRecursion(path.length - 1, path[path.length - 1], 1);
+    this.similarElements.forEach(function (element) {
+        element[0].className += ' angel-similar-elements';
+    });
 };
 
 },{"./click-analyzer":1,"./event":2}],4:[function(require,module,exports){
