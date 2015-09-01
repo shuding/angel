@@ -2,6 +2,7 @@
  * Created by shuding on 8/27/15.
  * <ds303077135@gmail.com>
  */
+
 var expect = require('chai').expect;
 
 var EventCenter = require('../app/event');
